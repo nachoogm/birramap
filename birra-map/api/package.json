@@ -1,8 +1,0 @@
-{
-  "name": "birramap-api",
-  "version": "2.0.0",
-  "private": true,
-  "engines": { "node": ">=20" },
-  "scripts": { "test": "node ../tests/run-tests.js" },
-  "dependencies": { "@azure/data-tables": "^13.3.0" }
-}
