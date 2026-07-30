@@ -1,0 +1,222 @@
+/* BirraMap — frontend */
+const DRINKS = [
+  { id: 'cana',    em: '🍺', name: 'Caña' },
+  { id: 'tercio',  em: '🍻', name: 'Tercio' },
+  { id: 'ipa',     em: '🌿', name: 'IPA' },
+  { id: 'trigo',   em: '🌾', name: 'Trigo' },
+  { id: 'tostada', em: '🟤', name: 'Tostada' },
+  { id: 'sin',     em: '🚱', name: 'Sin' },
+  { id: 'vino',    em: '🍷', name: 'Vino' },
+  { id: 'tinto',   em: '🍹', name: 'Tinto v.' },
+  { id: 'copa',    em: '🥃', name: 'Copa' },
+  { id: 'gintonic',em: '🍸', name: 'Gin-tonic' },
+  { id: 'sidra',   em: '🍏', name: 'Sidra' },
+  { id: 'refresco',em: '🥤', name: 'Refresco' }
+];
+const POLL_MS = 20000;
+
+let me = null, map, markers = new Map(), state = { drink: 'cana', qty: 1, lat: null, lon: null }, timer;
+
+const $ = s => document.querySelector(s);
+const api = async (path, opts = {}) => {
+  const r = await fetch('/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  if (r.status === 401) { show('login'); throw new Error('401'); }
+  if (!r.ok) throw new Error(await r.text());
+  return r.status === 204 ? null : r.json();
+};
+const show = id => ['login', 'onboarding', 'app'].forEach(s => $('#' + s).classList.toggle('hidden', s !== id));
+const toast = msg => { const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(t._x); t._x = setTimeout(() => t.classList.add('hidden'), 2600); };
+const ago = ts => { const m = Math.floor((Date.now() - new Date(ts)) / 60000); if (m < 1) return 'ahora mismo'; if (m < 60) return `hace ${m} min`; const h = Math.floor(m / 60); return `hace ${h}h${m % 60 ? ' ' + (m % 60) + 'm' : ''}`; };
+const drink = id => DRINKS.find(d => d.id === id) || DRINKS[0];
+
+/* ---------- ARRANQUE ---------- */
+(async function boot() {
+  const auth = await fetch('/.auth/me').then(r => r.json()).catch(() => null);
+  const p = auth && auth.clientPrincipal;
+  if (!p) return show('login');
+
+  try { me = await api('/me'); } catch { return show('login'); }
+
+  if (!me.groupId || !me.nick) {
+    $('#ob-nick').value = me.nick || p.userDetails || '';
+    show('onboarding');
+    return;
+  }
+  startApp();
+})();
+
+$('#ob-save').onclick = async () => {
+  const nick = $('#ob-nick').value.trim(), groupId = $('#ob-group').value.trim().toLowerCase();
+  if (!nick || !groupId) return toast('Rellena mote y grupo 😉');
+  me = await api('/me', { method: 'POST', body: JSON.stringify({ nick, groupId }) });
+  startApp();
+};
+
+function startApp() {
+  show('app');
+  $('#groupChip').textContent = '👥 ' + me.groupId;
+  if (!map) initMap();
+  renderDrinks();
+  refresh();
+  clearInterval(timer);
+  timer = setInterval(refresh, POLL_MS);
+}
+
+/* ---------- MAPA ---------- */
+function initMap() {
+  map = L.map('map', { zoomControl: false }).setView([40.4168, -3.7038], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '© OpenStreetMap'
+  }).addTo(map);
+  L.control.zoom({ position: 'bottomleft' }).addTo(map);
+  navigator.geolocation?.getCurrentPosition(
+    p => map.setView([p.coords.latitude, p.coords.longitude], 15),
+    () => {}, { enableHighAccuracy: true, timeout: 8000 }
+  );
+}
+
+function paint(list) {
+  const seen = new Set();
+  list.forEach(c => {
+    seen.add(c.userId);
+    const d = drink(c.drink);
+    const stale = (Date.now() - new Date(c.ts)) > 3 * 3600 * 1000;
+    const html = `<div class="pin ${stale ? 'stale' : ''}">${d.em}<small>${c.total}</small></div>`;
+    const icon = L.divIcon({ html, className: '', iconSize: [44, 44], iconAnchor: [22, 22] });
+    const popup = `<div class="pop"><b>${c.nick}</b>${c.total} × ${d.name}<br>📍 ${c.place || 'por ahí'}<br>🕒 ${ago(c.ts)}${c.note ? '<br>💬 ' + c.note : ''}</div>`;
+    if (markers.has(c.userId)) {
+      markers.get(c.userId).setLatLng([c.lat, c.lon]).setIcon(icon).setPopupContent(popup);
+    } else {
+      markers.set(c.userId, L.marker([c.lat, c.lon], { icon }).addTo(map).bindPopup(popup));
+    }
+  });
+  [...markers.keys()].filter(k => !seen.has(k)).forEach(k => { map.removeLayer(markers.get(k)); markers.delete(k); });
+}
+
+/* ---------- REFRESCO ---------- */
+async function refresh() {
+  try {
+    const data = await api('/checkins?hours=12');
+    paint(data.active);
+    renderLive(data.active);
+    renderMine(data.me);
+  } catch (e) { console.warn(e); }
+}
+
+function renderLive(list) {
+  const el = $('#tab-live');
+  if (!list.length) { el.innerHTML = `<div class="empty">Nadie ha fichado todavía.<br>Sé tú el que abre la veda 🍺</div>`; return; }
+  el.innerHTML = list.map(c => {
+    const d = drink(c.drink);
+    return `<div class="row" data-lat="${c.lat}" data-lon="${c.lon}" data-uid="${c.userId}">
+      <div class="em">${d.em}</div>
+      <div class="who"><b>${c.nick}</b><span>${c.total} × ${d.name} · 📍 ${c.place || 'por ahí'} · ${ago(c.ts)}</span></div>
+      <div class="cnt">${c.total}</div></div>`;
+  }).join('');
+  el.querySelectorAll('.row').forEach(r => r.onclick = () => {
+    map.setView([+r.dataset.lat, +r.dataset.lon], 17);
+    markers.get(r.dataset.uid)?.openPopup();
+    $('#sheet').classList.remove('open');
+  });
+}
+
+function renderMine(m) {
+  if (!m) return;
+  $('#tab-mine').innerHTML = `
+    <div class="stat"><span>Hoy</span><b>${m.today} 🍺</b></div>
+    <div class="stat"><span>Esta semana</span><b>${m.week}</b></div>
+    <div class="stat"><span>Este mes</span><b>${m.month}</b></div>
+    <div class="stat"><span>Media diaria (30d)</span><b>${m.avg30}</b></div>
+    <div class="stat"><span>Tu favorita</span><b>${drink(m.favorite).em} ${drink(m.favorite).name}</b></div>
+    <div class="stat"><span>Bar top</span><b>${m.topPlace || '—'}</b></div>
+    <div class="stat"><span>Racha de días</span><b>${m.streak} 🔥</b></div>
+    <p class="mini" style="margin-top:14px">Si hoy pasas de 6, la app te llama un taxi… mentira, pero bébete un agua 💧</p>`;
+}
+
+async function loadRank(period) {
+  const r = await api('/ranking?period=' + period);
+  const medals = ['🥇', '🥈', '🥉'];
+  $('#rankList').innerHTML = r.length
+    ? r.map((x, i) => `<div class="row"><div class="medal">${medals[i] || (i + 1)}</div>
+        <div class="who"><b>${x.nick}</b><span>${x.sessions} sesiones · ${drink(x.favorite).em} ${drink(x.favorite).name}</span></div>
+        <div class="cnt">${x.total}</div></div>`).join('')
+    : `<div class="empty">Aún no hay datos de este periodo.</div>`;
+}
+
+/* ---------- UI ---------- */
+$('#sheetHandle').onclick = () => $('#sheet').classList.toggle('open');
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  ['live', 'rank', 'mine'].forEach(n => $('#tab-' + n).classList.toggle('hidden', n !== t.dataset.tab));
+  $('#sheet').classList.add('open');
+  if (t.dataset.tab === 'rank') loadRank(document.querySelector('.seg-btn.active').dataset.period);
+});
+document.querySelectorAll('.seg-btn').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); loadRank(b.dataset.period);
+});
+
+function renderDrinks() {
+  $('#drinks').innerHTML = DRINKS.map(d =>
+    `<div class="drink ${d.id === state.drink ? 'sel' : ''}" data-id="${d.id}"><b>${d.em}</b>${d.name}</div>`).join('');
+  $('#drinks').querySelectorAll('.drink').forEach(el => el.onclick = () => {
+    state.drink = el.dataset.id; renderDrinks();
+  });
+}
+
+$('#fab').onclick = () => {
+  $('#modal').classList.remove('hidden');
+  $('#geoStatus').textContent = 'buscando GPS…';
+  navigator.geolocation.getCurrentPosition(async p => {
+    state.lat = p.coords.latitude; state.lon = p.coords.longitude;
+    $('#geoStatus').textContent = '✅ ubicación lista';
+    if (!$('#placeName').value) {
+      try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${state.lat}&lon=${state.lon}`).then(x => x.json());
+        $('#placeName').value = r.name || r.address?.bar || r.address?.pub || r.address?.road || '';
+      } catch {}
+    }
+  }, () => { $('#geoStatus').textContent = '⚠️ sin GPS, se usará el centro del mapa'; state.lat = map.getCenter().lat; state.lon = map.getCenter().lng; },
+    { enableHighAccuracy: true, timeout: 10000 });
+};
+$('#cancelCheckin').onclick = () => $('#modal').classList.add('hidden');
+document.querySelectorAll('.qty-btn').forEach(b => b.onclick = () => {
+  state.qty = Math.max(1, Math.min(20, state.qty + (+b.dataset.d)));
+  $('#qtyVal').textContent = state.qty;
+});
+
+$('#saveCheckin').onclick = async () => {
+  if (state.lat == null) return toast('Espera al GPS un segundo 📡');
+  await api('/checkin', {
+    method: 'POST',
+    body: JSON.stringify({
+      drink: state.drink, qty: state.qty, lat: state.lat, lon: state.lon,
+      place: $('#placeName').value.trim(), note: $('#note').value.trim()
+    })
+  });
+  $('#modal').classList.add('hidden');
+  state.qty = 1; $('#qtyVal').textContent = 1; $('#note').value = '';
+  toast('¡Fichado! 🍻');
+  refresh();
+};
+
+$('#btnMenu').onclick = () => {
+  $('#mnu-nick').value = me.nick; $('#mnu-group').value = me.groupId;
+  $('#menu').classList.remove('hidden');
+};
+$('#menu').onclick = e => { if (e.target.id === 'menu') $('#menu').classList.add('hidden'); };
+$('#modal').onclick = e => { if (e.target.id === 'modal') $('#modal').classList.add('hidden'); };
+$('#mnu-save').onclick = async () => {
+  me = await api('/me', { method: 'POST', body: JSON.stringify({ nick: $('#mnu-nick').value.trim(), groupId: $('#mnu-group').value.trim().toLowerCase() }) });
+  $('#menu').classList.add('hidden'); $('#groupChip').textContent = '👥 ' + me.groupId;
+  markers.forEach(m => map.removeLayer(m)); markers.clear();
+  refresh(); toast('Guardado ✅');
+};
+$('#mnu-close-session').onclick = async () => {
+  await api('/checkin', { method: 'DELETE' });
+  $('#menu').classList.add('hidden'); toast('Fuera del mapa. Hasta la próxima 🚕'); refresh();
+};
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+document.addEventListener('visibilitychange', () => { if (!document.hidden && me) refresh(); });
