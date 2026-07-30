@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>BirraMap · Cómo funciona</title>
+<meta name="theme-color" content="#070f24" />
+<link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="marca">
+    <img src="/icons/icon-192.png" alt="" />
+    <span class="marca-txt">Cómo funciona</span>
+  </div>
+  <div class="top-der">
+    <a class="btn-icono" href="/" style="text-decoration:none">✕</a>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero anim">
+    <span class="hero-em">🍺</span>
+    <h1 style="font-size:1.7rem;margin-bottom:8px">BirraMap</h1>
+    <p class="hero-sub" style="font-size:.95rem">
+      Dónde está la peña, qué beben, cuántas llevan y qué tal está el sitio.
+    </p>
+  </div>
+
+  <!-- resumen rápido -->
+  <div class="card card-sm anim anim-1" style="margin-bottom:14px">
+    <div class="eyebrow" style="margin-bottom:12px">En 30 segundos</div>
+    <ul class="tour-lista" style="list-style:none;padding:0;margin:0">
+      <li><span class="li-em">👥</span><div><b>Únete a un grupo</b><span>Un código que os inventáis. Solo os veis entre vosotros.</span></div></li>
+      <li><span class="li-em">🍺</span><div><b>Ficha lo que pides</b><span>Bebida, cantidad y bar. Apareces en el mapa al momento.</span></div></li>
+      <li><span class="li-em">🤝</span><div><b>Invita rondas</b><span>Se reparte entre los que están cerca y queda anotado.</span></div></li>
+      <li><span class="li-em">⭐</span><div><b>Puntúa el bar</b><span>De 0 a 5 estrellas, para saber cuáles merecen la pena.</span></div></li>
+      <li><span class="li-em">🏠</span><div><b>Avisa al llegar a casa</b><span>Y el grupo se queda tranquilo.</span></div></li>
+    </ul>
+  </div>
+
+  <button class="btn btn-oro anim anim-2" id="verTour">▶️ Ver el tour de bienvenida</button>
+
+  <div class="seccion">Todas las preguntas</div>
+  <div id="listaAyuda"></div>
+
+  <!-- comprobación del GPS -->
+  <div class="seccion">Tu dispositivo</div>
+  <div class="card card-sm">
+    <div id="diagGeo" class="mini">Comprobando…</div>
+    <button class="btn btn-sm btn-fantasma" id="probarGps" style="width:100%;margin-top:12px">📍 Probar el GPS ahora</button>
+    <div id="resGps"></div>
+  </div>
+
+  <p class="mini" style="text-align:center;margin:26px 0 10px">
+    Hecho con 🍺 para la peña · <a href="/" style="color:var(--oro)">Volver a la app</a>
+  </p>
+</div>
+
+<script src="/js/geo.js"></script>
+<script src="/js/ui.js"></script>
+<script>
+UI.pintarAyuda('#listaAyuda');
+document.querySelector('#verTour').onclick = () => UI.tour({ forzar: true });
+
+/* diagnóstico del dispositivo */
+(async () => {
+  const d = GEO.diagnostico();
+  const p = await GEO.permiso();
+  const si = v => v ? '<span style="color:var(--ok)">sí</span>' : '<span style="color:var(--mal)">no</span>';
+  document.querySelector('#diagGeo').innerHTML = `
+    <div class="stat"><span>Dispositivo</span><b>${d.ios ? '🍎 iPhone / iPad' : /Android/.test(navigator.userAgent) ? '🤖 Android' : '💻 Escritorio'}</b></div>
+    <div class="stat"><span>Instalada como app</span><b>${d.pwa ? 'sí' : 'no (desde el navegador)'}</b></div>
+    <div class="stat"><span>Conexión segura</span><b>${si(d.seguro)}</b></div>
+    <div class="stat"><span>Geolocalización</span><b>${si(d.soportado)}</b></div>
+    <div class="stat"><span>Permiso</span><b>${p === 'granted' ? '<span style="color:var(--ok)">concedido</span>'
+      : p === 'denied' ? '<span style="color:var(--mal)">DENEGADO</span>' : p === 'prompt' ? 'sin preguntar aún' : 'desconocido'}</b></div>`;
+
+  if (p === 'denied') {
+    const ex = GEO.explicarError({ code: 1 }, d);
+    document.querySelector('#resGps').innerHTML =
+      `<div class="aviso aviso-mal"><b>${ex.titulo}</b><ol>${ex.pasos.map(x => `<li>${x}</li>`).join('')}</ol></div>`;
+  }
+})();
+
+/* ⚠️ llamada síncrona dentro del click: requisito de iOS */
+document.querySelector('#probarGps').onclick = function () {
+  const res = document.querySelector('#resGps');
+  res.innerHTML = '<div class="aviso"><span class="spin" style="display:inline-block;vertical-align:-4px"></span> Buscando…</div>';
+
+  const pet = GEO.pedirUbicacion({
+    onProgreso: (pos, c) => {
+      const pct = Math.max(6, Math.min(100, Math.round(100 - (Math.log10(Math.max(pos.accuracy, 5)) / Math.log10(5000)) * 100)));
+      res.innerHTML = `<div class="aviso"><b>${c.em} ${c.txt}</b>
+        <div class="gps-barra"><i style="width:${pct}%;background:${c.color}"></i></div>
+        <div class="gps-txt"><span>afinando…</span><span>±${Math.round(pos.accuracy)} m</span></div></div>`;
+    },
+    onAviso: t => { res.innerHTML = `<div class="aviso">⏳ ${t}</div>`; }
+  });
+
+  pet.promesa.then(pos => {
+    const c = pos.calidad;
+    res.innerHTML = `<div class="aviso ${c.usable ? 'aviso-ok' : 'aviso-mal'}">
+      <b>${c.em} Precisión ${c.nivel} · ±${Math.round(pos.accuracy)} m</b><br>
+      Conseguido en ${(pos.ms / 1000).toFixed(1)} s con ${pos.intentos} lecturas.
+      ${c.usable ? '<br>Con esto BirraMap te sitúa bien 👍'
+        : '<br>Tu móvil está usando la antena, no el GPS. Revisa los ajustes de arriba o coloca el punto a mano al fichar.'}</div>`;
+  }).catch(e => {
+    const ex = e.explicado;
+    res.innerHTML = `<div class="aviso aviso-mal"><b>${ex.titulo}</b><br>${ex.texto}
+      ${ex.pasos && ex.pasos.length ? `<ol>${ex.pasos.map(x => `<li>${x}</li>`).join('')}</ol>` : ''}</div>`;
+  });
+};
+</script>
+</body>
+</html>
