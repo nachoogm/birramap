@@ -1,0 +1,20 @@
+{
+  "routes": [
+    { "route": "/api/health", "allowedRoles": ["anonymous"] },
+    { "route": "/api/purge", "allowedRoles": ["anonymous"] },
+    { "route": "/diag.html", "allowedRoles": ["anonymous"] },
+    { "route": "/api/*", "allowedRoles": ["authenticated"] },
+    { "route": "/.auth/login/twitter", "statusCode": 404 },
+    { "route": "/*", "allowedRoles": ["anonymous", "authenticated"] }
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/icons/*", "/js/*", "/diag.html", "*.css", "*.js", "*.png", "*.webmanifest"]
+  },
+  "globalHeaders": {
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "platform": { "apiRuntime": "node:20" }
+}
