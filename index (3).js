@@ -1,4 +1,0 @@
-node_modules/
-api/local.settings.json
-.vscode/
-mobile/
