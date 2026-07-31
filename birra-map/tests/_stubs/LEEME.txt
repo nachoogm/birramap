@@ -1,0 +1,5 @@
+Estos dos ficheros son versiones REDUCIDAS, solo para que los tests
+puedan ejecutarse sin Azure. NO los copies a api/shared/: pisarían
+los tuyos, que son los completos.
+
+Los tests los colocan y los retiran solos.

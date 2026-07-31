@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>BirraMap</title>
+<meta name="theme-color" content="#060d1e" />
+<meta name="description" content="Dónde está la peña, qué beben y cuántas llevan." />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<script>
+/* Antes de pintar nada: evita el destello blanco al abrir en oscuro
+   (y el destello negro al abrir en claro). */
+(function(){try{
+  var m=localStorage.getItem('birramap_tema')||'auto';
+  var t=(m==='claro'||m==='oscuro')?m:(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'oscuro':'claro');
+  document.documentElement.setAttribute('data-tema',t);
+  document.documentElement.style.colorScheme=(t==='oscuro'?'dark':'light');
+}catch(e){document.documentElement.setAttribute('data-tema','oscuro');}})();
+</script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="/css/styles.css?v=5" />
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<section id="scr-login" class="screen centro hidden">
+  <div class="card anim" style="max-width:390px;text-align:center">
+    <img src="/icons/icon-192.png" alt="" style="width:82px;border-radius:22px" />
+    <h1 style="margin:12px 0 4px">BirraMap</h1>
+    <p class="mini" style="margin-bottom:22px">Dónde está la peña y cuántas llevan.</p>
+    <a class="btn btn-gh" href="/.auth/login/github?post_login_redirect_uri=/"><span data-ico="github" data-tam="20"></span> Entrar con GitHub</a>
+    <a class="btn btn-ms" href="/.auth/login/aad?post_login_redirect_uri=/"><span data-ico="microsoft" data-tam="18"></span> Entrar con Microsoft</a>
+    <p class="mini" style="margin-top:18px;color:var(--txt3)">Solo te ve la gente de tu grupo.</p>
+    <a class="mini" href="/ayuda.html" style="color:var(--oro);display:inline-block;margin-top:10px">¿Cómo funciona?</a>
+  </div>
+</section>
+
+<!-- ============ ALTA ============ -->
+<section id="scr-alta" class="screen centro hidden">
+  <div class="card anim" style="max-width:390px">
+    <div style="display:flex;justify-content:center;color:var(--oro);margin-bottom:8px"><span data-ico="grupo" data-tam="44"></span></div>
+    <h2 style="text-align:center">Tu grupo</h2>
+    <p class="mini" style="text-align:center;margin-bottom:6px">Invéntate un código y pásaselo a tus colegas.</p>
+    <label>Tu mote</label>
+    <input id="ob-nick" maxlength="20" placeholder="Nacho" autocomplete="nickname" />
+    <label>Código de grupo</label>
+    <input id="ob-group" maxlength="24" placeholder="lospavos2026" autocapitalize="none" autocorrect="off" />
+    <button id="ob-save" class="btn btn-oro">Entrar al grupo</button>
+    <p class="mini" style="text-align:center;margin-top:12px">Quien tenga ese código entrará en vuestro mapa.</p>
+  </div>
+</section>
+
+<!-- ============ APP ============ -->
+<section id="scr-app" class="screen hidden">
+
+  <header class="topbar">
+    <div class="marca">
+      <img src="/icons/icon-192.png" alt="" />
+      <span class="marca-txt" id="titulo">BirraMap</span>
+    </div>
+    <div class="top-der">
+      <span class="chip chip-vivo hidden" id="chipVivo"></span>
+      <span class="chip chip-oro hidden" id="chipEvento"></span>
+      <span class="chip" id="chipGrupo"></span>
+      <button class="btn-icono" id="btnTema" title="Cambiar tema"><span data-ico="luna" data-tam="19"></span></button>
+      <button class="btn-icono" id="btnMenu"><span data-ico="ajustes" data-tam="19"></span></button>
+    </div>
+  </header>
+
+  <!-- ---- MAPA ---- -->
+  <div class="page" id="pg-mapa">
+    <div id="map"></div>
+    <div class="hoja" id="hoja">
+      <div class="asa" id="asa"></div>
+      <div class="asa-txt" id="asaTxt">nadie fuera</div>
+      <div id="listaDirecto"></div>
+      <div id="listaCasa"></div>
+    </div>
+    <div class="fabs">
+      <button class="fab fab-3" id="fabPuntuar"><span data-ico="estrella" data-tam="19"></span> Puntuar</button>
+      <button class="fab fab-2" id="fabRonda"><span data-ico="manos" data-tam="19"></span> Invito yo</button>
+      <button class="fab" id="fabBeber"><span data-ico="cana" data-tam="22"></span> Me tomo una</button>
+    </div>
+  </div>
+
+  <!-- ---- RANKING ---- -->
+  <div class="page hidden" id="pg-ranking">
+    <div class="wrap">
+      <div class="seg" id="rankSeg">
+        <button class="seg-btn activo" data-period="day">Hoy</button>
+        <button class="seg-btn" data-period="week">Semana</button>
+        <button class="seg-btn" data-period="month">Mes</button>
+        <button class="seg-btn" data-period="year">Año</button>
+      </div>
+      <select id="rankEvento"><option value="">Sin evento</option></select>
+      <div id="rankLista"></div>
+      <div class="seccion">Eventos</div>
+      <div class="card card-sm">
+        <label>Nombre</label>
+        <input id="ev-name" maxlength="40" placeholder="Oktoberfest 2026" />
+        <div class="dos">
+          <div><label>Empieza</label><input id="ev-start" type="datetime-local" /></div>
+          <div><label>Acaba</label><input id="ev-end" type="datetime-local" /></div>
+        </div>
+        <button id="ev-save" class="btn btn-oro">Crear evento</button>
+      </div>
+      <div id="evLista" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <!-- ---- BARES ---- -->
+  <div class="page hidden" id="pg-bares">
+    <div class="wrap">
+      <div id="baresTop"></div>
+      <div class="seccion">Ranking de bares</div>
+      <div id="baresLista"></div>
+      <p class="mini" style="text-align:center;margin-top:16px">Toca cualquier bar para puntuarlo.</p>
+    </div>
+  </div>
+
+  <!-- ---- DEUDAS ---- -->
+  <div class="page hidden" id="pg-deudas">
+    <div class="wrap">
+      <div id="deudaHero"></div>
+      <div class="seccion">Quién debe a quién</div>
+      <div id="deudaLista"></div>
+      <div id="balanceLista"></div>
+      <p class="mini" style="text-align:center;margin-top:16px">Se compensan solas. Últimos 90 días.</p>
+    </div>
+  </div>
+
+  <!-- ---- CALOR ---- -->
+  <div class="page hidden" id="pg-calor">
+    <div id="heatmap"></div>
+    <div class="hoja abierta">
+      <div class="asa"></div>
+      <div class="seg">
+        <button class="seg-btn activo" data-scope="group">El grupo</button>
+        <button class="seg-btn" data-scope="me">Solo yo</button>
+      </div>
+      <div id="calorTop"></div>
+    </div>
+  </div>
+
+  <!-- ---- PERFIL ---- -->
+  <div class="page hidden" id="pg-perfil">
+    <div class="wrap">
+      <div id="perfilStats"></div>
+
+      <div class="seccion">Ajustes</div>
+      <div class="card card-sm">
+        <label>Mote</label><input id="mnu-nick" maxlength="20" />
+        <label>Grupo</label><input id="mnu-group" maxlength="24" autocapitalize="none" />
+        <button id="mnu-save" class="btn btn-oro">Guardar</button>
+      </div>
+
+      <div class="seccion">Aspecto</div>
+      <div class="card card-sm">
+        <div class="tema-sel" id="temaSel"></div>
+        <p class="mini" id="temaTxt" style="margin-top:10px"></p>
+      </div>
+
+      <div class="seccion">Avisos</div>
+      <div class="card card-sm">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <span style="font-size:.88rem">Avisarme si alguien ficha cerca</span>
+          <input type="checkbox" id="notifSw" style="width:auto;transform:scale(1.4);accent-color:var(--oro)" />
+        </div>
+        <p class="mini" id="notifTxt" style="margin-top:8px"></p>
+      </div>
+
+      <div class="seccion">Fin de fiesta</div>
+      <button id="btnCasa" class="btn btn-ok"><span data-ico="casa" data-tam="19"></span> He llegado a casa</button>
+      <button id="btnCerrarNoche" class="btn btn-fantasma"><span data-ico="taxi" data-tam="19"></span> Cerrar la noche</button>
+
+      <div class="seccion">Ayuda</div>
+      <button id="btnTour" class="btn btn-fantasma"><span data-ico="rayo" data-tam="19"></span> Ver el tour otra vez</button>
+      <a class="btn btn-fantasma" href="/ayuda.html"><span data-ico="ayuda" data-tam="19"></span> Cómo funciona la app</a>
+      <a class="btn btn-fantasma" href="/.auth/logout?post_logout_redirect_uri=/"><span data-ico="salir" data-tam="19"></span> Cerrar sesión</a>
+    </div>
+  </div>
+
+  <!-- ---- NAV ---- -->
+  <nav class="nav">
+    <a href="#/mapa"    class="nav-i" data-page="mapa"><span data-ico="mapa" data-tam="22"></span><span>Mapa</span></a>
+    <a href="#/ranking" class="nav-i" data-page="ranking"><span data-ico="trofeo" data-tam="22"></span><span>Ranking</span></a>
+    <a href="#/bares"   class="nav-i" data-page="bares"><span data-ico="estrella" data-tam="22"></span><span>Bares</span></a>
+    <a href="#/deudas"  class="nav-i" data-page="deudas"><span data-ico="monedas" data-tam="22"></span><span>Deudas</span></a>
+    <a href="#/perfil"  class="nav-i" data-page="perfil"><span data-ico="persona" data-tam="22"></span><span>Perfil</span></a>
+  </nav>
+</section>
+
+<!-- ============ MODAL FICHAR ============ -->
+<div id="mdBeber" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-asa"></div>
+    <h3>¿Qué te estás metiendo?</h3>
+    <p class="modal-sub">Elige la bebida y confirma dónde estás.</p>
+    <div id="bebidas" class="bebidas"></div>
+
+    <label>Dónde estás</label>
+    <div id="geoStatus" class="gps-estado"></div>
+    <input id="localNombre" placeholder="Bar Manolo" style="margin-top:8px" />
+
+    <label>Cuántas llevas</label>
+    <div class="cant">
+      <button class="cant-btn" data-d="-1"><span data-ico="menos" data-tam="22"></span></button>
+      <span class="cant-val" id="qtyVal">1</span>
+      <button class="cant-btn" data-d="1"><span data-ico="mas" data-tam="22"></span></button>
+    </div>
+
+    <label>Precio por consumición <span class="mini">opcional</span></label>
+    <input id="precio" inputmode="decimal" placeholder="2,50" />
+
+    <label>Mensaje <span class="mini">opcional</span></label>
+    <input id="nota" maxlength="80" placeholder="Vente que hay sitio" />
+
+    <div class="fila-btn" style="margin-top:18px">
+      <button class="btn btn-fantasma" data-cerrar="mdBeber">Cancelar</button>
+      <button class="btn btn-oro" id="guardarBeber">¡Fichar!</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="/js/icons.js?v=5"></script>
+<script src="/js/tema.js?v=5"></script>
+<script src="/js/geo.js?v=5"></script>
+<script src="/js/ui.js?v=5"></script>
+<script src="/js/app.js?v=5"></script>
+</body>
+</html>

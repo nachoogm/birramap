@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>BirraMap · Probar GPS</title>
+<meta name="theme-color" content="#0b1b3a" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{--bg:#0b1b3a;--card:#132a55;--line:#22407a;--txt:#eaf0ff;--mut:#93a7cf;--ok:#39d98a;--bad:#ff6b7a;--gold:#f5b301}
+  *{box-sizing:border-box}
+  body{margin:0;padding:16px;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+  .wrap{max-width:640px;margin:0 auto}
+  h1{font-size:1.35rem;margin:0 0 4px}
+  .sub{color:var(--mut);font-size:.86rem;margin:0 0 16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+  .big{font-size:2.4rem;font-weight:800;text-align:center;color:var(--gold);line-height:1.1}
+  .big small{display:block;font-size:.8rem;color:var(--mut);font-weight:600;margin-top:6px}
+  .estado{text-align:center;font-size:1.05rem;font-weight:700;margin-bottom:8px}
+  .barra{height:10px;background:#0a1428;border-radius:999px;overflow:hidden;margin:12px 0}
+  .barra i{display:block;height:100%;background:linear-gradient(90deg,#ff6b7a,#f5b301,#39d98a);transition:width .4s}
+  #map{height:260px;border-radius:12px;border:1px solid var(--line);margin-top:10px}
+  .fila{display:flex;justify-content:space-between;padding:9px 2px;border-bottom:1px dashed var(--line);font-size:.88rem}
+  .fila:last-child{border:none}
+  .fila span{color:var(--mut)}
+  .fila b{text-align:right;word-break:break-all}
+  button{width:100%;background:linear-gradient(180deg,#ffd24a,var(--gold));color:#26180a;border:none;border-radius:12px;
+    padding:14px;font-weight:800;font-size:1rem;cursor:pointer;margin-top:8px}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt);font-weight:600}
+  .log{font-size:.76rem;color:#a9c0ea;background:#0a1428;border:1px solid var(--line);border-radius:10px;
+    padding:10px;max-height:190px;overflow-y:auto;font-family:ui-monospace,monospace}
+  .log div{padding:2px 0;border-bottom:1px solid #14294f}
+  .aviso{background:#20376b;border-left:4px solid var(--gold);border-radius:8px;padding:13px;font-size:.88rem;line-height:1.5;margin-top:10px}
+  .ok{color:var(--ok)}.bad{color:var(--bad)}
+  a{color:var(--gold)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📍 Probar el GPS</h1>
+  <p class="sub">Abre esto <b>en el móvil</b>, en el bar donde estés. Te dice qué precisión tienes de verdad.</p>
+
+  <div class="card">
+    <div class="estado" id="estado">Pulsa el botón para empezar</div>
+    <div class="big" id="precision">—<small>precisión</small></div>
+    <div class="barra"><i id="barra" style="width:0%"></i></div>
+    <button id="btn">Buscar mi posición</button>
+    <button class="ghost" id="btnSeguir">Seguimiento continuo (30 s)</button>
+    <div id="aviso"></div>
+  </div>
+
+  <div class="card">
+    <div class="fila"><span>Latitud</span><b id="lat">—</b></div>
+    <div class="fila"><span>Longitud</span><b id="lon">—</b></div>
+    <div class="fila"><span>Lecturas recibidas</span><b id="intentos">—</b></div>
+    <div class="fila"><span>Tiempo hasta buena señal</span><b id="tiempo">—</b></div>
+    <div class="fila"><span>Permiso</span><b id="permiso">—</b></div>
+    <div class="fila"><span>Conexión segura</span><b id="https">—</b></div>
+    <div class="fila"><span>Dispositivo</span><b id="disp">—</b></div>
+    <div id="map"></div>
+  </div>
+
+  <div class="card">
+    <div class="estado" style="text-align:left;font-size:.95rem">Historial de lecturas</div>
+    <div class="log" id="log"><div>Esperando…</div></div>
+  </div>
+
+  <p class="sub" style="text-align:center"><a href="/">← Volver a BirraMap</a></p>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/geo.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+let map, marcador, circulo, watchId = null;
+
+function pintarMapa(lat, lon, acc) {
+  if (!map) {
+    map = L.map('map', { zoomControl: false }).setView([lat, lon], 17);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  }
+  if (marcador) map.removeLayer(marcador);
+  if (circulo) map.removeLayer(circulo);
+  marcador = L.marker([lat, lon]).addTo(map);
+  circulo = L.circle([lat, lon], { radius: acc, color: '#f5b301', fillColor: '#f5b301', fillOpacity: .12, weight: 2 }).addTo(map);
+  map.setView([lat, lon], acc < 50 ? 18 : acc < 300 ? 16 : 13);
+}
+
+function log(txt, clase = '') {
+  const l = $('#log');
+  if (l.dataset.limpio !== '1') { l.innerHTML = ''; l.dataset.limpio = '1'; }
+  const d = document.createElement('div');
+  d.className = clase;
+  d.textContent = new Date().toLocaleTimeString('es-ES') + ' · ' + txt;
+  l.prepend(d);
+}
+
+function mostrar(pos, cal) {
+  $('#precision').innerHTML = (pos.accuracy < 1000 ? Math.round(pos.accuracy) + ' m' : (pos.accuracy / 1000).toFixed(1) + ' km') + '<small>precisión</small>';
+  $('#lat').textContent = pos.lat.toFixed(6);
+  $('#lon').textContent = pos.lon.toFixed(6);
+  $('#estado').innerHTML = cal.em + ' ' + cal.nivel.toUpperCase();
+  const pct = Math.max(4, Math.min(100, Math.round(100 - (Math.log10(Math.max(pos.accuracy, 5)) / Math.log10(5000)) * 100)));
+  $('#barra').style.width = pct + '%';
+  pintarMapa(pos.lat, pos.lon, pos.accuracy);
+}
+
+async function info() {
+  $('#https').innerHTML = window.isSecureContext ? '<span class="ok">sí</span>' : '<span class="bad">NO — hace falta HTTPS</span>';
+  $('#disp').textContent = GEO.esIOS() ? 'iPhone / iPad' : /Android/.test(navigator.userAgent) ? 'Android' : 'Escritorio';
+  const p = await GEO.permiso();
+  $('#permiso').innerHTML = p === 'granted' ? '<span class="ok">concedido</span>'
+    : p === 'denied' ? '<span class="bad">DENEGADO</span>'
+    : p === 'prompt' ? 'pendiente de preguntar' : 'desconocido';
+  if (p === 'denied') {
+    $('#aviso').innerHTML = `<div class="aviso"><b>Tienes la ubicación bloqueada.</b><br>${GEO.explicarError({ code: 1 }, GEO.esIOS()).texto}</div>`;
+  }
+}
+info();
+
+$('#btn').onclick = async () => {
+  $('#btn').disabled = true;
+  $('#estado').textContent = '🛰️ Buscando satélites…';
+  $('#aviso').innerHTML = '';
+  $('#log').dataset.limpio = '0';
+  const t0 = Date.now();
+  try {
+    const pos = await GEO.mejorPosicion({
+      onProgreso: (p, c, n) => {
+        log(`lectura ${n}: ±${Math.round(p.accuracy)} m (${c.nivel})`, c.usable ? 'ok' : 'bad');
+        mostrar(p, c);
+      }
+    });
+    mostrar(pos, pos.calidad);
+    $('#intentos').textContent = pos.intentos;
+    $('#tiempo').textContent = (pos.ms / 1000).toFixed(1) + ' s';
+    log(`FINAL: ±${Math.round(pos.accuracy)} m tras ${pos.intentos} lecturas`, 'ok');
+    $('#aviso').innerHTML = pos.calidad.usable
+      ? `<div class="aviso">✅ <b>Precisión ${pos.calidad.nivel}.</b> Con esto BirraMap te sitúa bien.${pos.accuracy > 50 ? ' Aun así, si estás dentro del bar puede bailar un poco: en la app puedes mover el punto a mano.' : ''}</div>`
+      : `<div class="aviso">🔴 <b>Tu móvil no está usando el GPS</b>, solo la antena. Prueba a: activar la ubicación precisa en los ajustes, salir a la calle un momento, o mover el punto a mano en la app.</div>`;
+  } catch (e) {
+    const ex = e.explicado || { titulo: 'Error', texto: e.message };
+    $('#estado').innerHTML = '<span class="bad">❌ ' + ex.titulo + '</span>';
+    $('#aviso').innerHTML = `<div class="aviso"><b>${ex.titulo}</b><br>${ex.texto}</div>`;
+    log('ERROR: ' + ex.titulo, 'bad');
+  }
+  $('#btn').disabled = false;
+  info();
+};
+
+$('#btnSeguir').onclick = () => {
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId); watchId = null;
+    $('#btnSeguir').textContent = 'Seguimiento continuo (30 s)';
+    log('seguimiento parado');
+    return;
+  }
+  $('#log').dataset.limpio = '0';
+  $('#btnSeguir').textContent = '⏹ Parar seguimiento';
+  log('seguimiento iniciado — camina un poco y mira si se mueve');
+  watchId = GEO.seguir(p => {
+    const c = GEO.calidad(p.accuracy);
+    log(`↻ ±${Math.round(p.accuracy)} m`, c.usable ? 'ok' : 'bad');
+    mostrar(p, c);
+  }, err => log('ERROR: ' + err.titulo, 'bad'));
+  setTimeout(() => {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId); watchId = null;
+      $('#btnSeguir').textContent = 'Seguimiento continuo (30 s)';
+      log('seguimiento terminado');
+    }
+  }, 30000);
+};
+</script>
+</body>
+</html>

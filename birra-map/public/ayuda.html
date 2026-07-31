@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>BirraMap · Cómo funciona</title>
+<meta name="theme-color" content="#060d1e" />
+<script>
+(function(){try{
+  var m=localStorage.getItem('birramap_tema')||'auto';
+  var t=(m==='claro'||m==='oscuro')?m:(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'oscuro':'claro');
+  document.documentElement.setAttribute('data-tema',t);
+  document.documentElement.style.colorScheme=(t==='oscuro'?'dark':'light');
+}catch(e){document.documentElement.setAttribute('data-tema','oscuro');}})();
+</script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="/css/styles.css?v=5" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="marca">
+    <img src="/icons/icon-192.png" alt="" />
+    <span class="marca-txt">Cómo funciona</span>
+  </div>
+  <div class="top-der">
+    <button class="btn-icono" id="btnTemaAyuda" title="Cambiar tema"><span data-ico="luna" data-tam="19"></span></button>
+    <a class="btn-icono" href="/"><span data-ico="cerrar" data-tam="19"></span></a>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero anim">
+    <div class="hero-ico"><span data-ico="jarra" data-tam="46"></span></div>
+    <h1 style="font-size:1.7rem">BirraMap</h1>
+    <p class="hero-sub">Dónde está la peña, qué beben, cuántas llevan y qué tal está el sitio.</p>
+  </div>
+
+  <div class="card card-sm anim">
+    <div class="eyebrow" style="margin-bottom:12px">En 30 segundos</div>
+    <ul class="tour-lista">
+      <li><span class="li-ico"><span data-ico="grupo" data-tam="20"></span></span>
+        <div><b>Únete a un grupo</b><span>Un código que os inventáis. Solo os veis entre vosotros.</span></div></li>
+      <li><span class="li-ico"><span data-ico="cana" data-tam="20"></span></span>
+        <div><b>Ficha lo que pides</b><span>Bebida, cantidad y bar. Apareces en el mapa al momento.</span></div></li>
+      <li><span class="li-ico"><span data-ico="manos" data-tam="20"></span></span>
+        <div><b>Invita rondas</b><span>Se reparte entre los que están cerca y queda anotado.</span></div></li>
+      <li><span class="li-ico"><span data-ico="estrella" data-tam="20"></span></span>
+        <div><b>Puntúa el bar</b><span>De 0 a 5 estrellas, para saber cuáles merecen la pena.</span></div></li>
+      <li><span class="li-ico"><span data-ico="casa" data-tam="20"></span></span>
+        <div><b>Avisa al llegar a casa</b><span>Y el grupo se queda tranquilo.</span></div></li>
+    </ul>
+  </div>
+
+  <button class="btn btn-oro" id="verTour">Ver el tour de bienvenida</button>
+
+  <!-- comprobador de GPS -->
+  <div class="seccion">Comprueba tu GPS</div>
+  <div class="card card-sm">
+    <div id="diagGeo"></div>
+    <button class="btn btn-oro" id="probarGps" style="margin-top:14px">
+      <span data-ico="satelite" data-tam="19"></span> Probar el GPS ahora
+    </button>
+    <div id="resGps"></div>
+    <div id="mapaPrueba" style="height:0;border-radius:var(--rm);overflow:hidden;transition:height .4s;margin-top:12px"></div>
+  </div>
+
+  <div class="seccion">Todas las preguntas</div>
+  <div id="listaAyuda"></div>
+
+  <p class="mini" style="text-align:center;margin:26px 0 10px">
+    <a href="/" style="color:var(--oro)">Volver a la app</a>
+  </p>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/icons.js?v=5"></script>
+<script src="/js/tema.js?v=5"></script>
+<script src="/js/geo.js?v=5"></script>
+<script src="/js/ui.js?v=5"></script>
+<script>
+ICON.pintar();
+UI.pintarAyuda('#listaAyuda');
+
+const btAy = document.querySelector('#btnTemaAyuda');
+const pintaBt = () => { btAy.innerHTML = ICON.get(TEMA.efectivo() === 'oscuro' ? 'sol' : 'luna', 19); };
+pintaBt();
+btAy.onclick = () => { TEMA.alternar(); pintaBt(); };
+document.querySelector('#verTour').onclick = () => UI.tour({ forzar: true });
+
+const $ = s => document.querySelector(s);
+let mapaPrueba = null, marcaPrueba = null, circPrueba = null;
+
+(async () => {
+  const d = GEO.diagnostico();
+  const p = await GEO.permiso();
+  const si = v => v ? '<span style="color:var(--ok)">sí</span>' : '<span style="color:var(--mal)">no</span>';
+  $('#diagGeo').innerHTML = `
+    <div class="stat"><span>Dispositivo</span><b>${d.ios ? 'iPhone / iPad' : d.android ? 'Android' : 'Escritorio'}</b></div>
+    <div class="stat"><span>Instalada como app</span><b>${d.pwa ? 'sí' : 'no, desde el navegador'}</b></div>
+    <div class="stat"><span>Conexión segura</span><b>${si(d.seguro)}</b></div>
+    <div class="stat"><span>Geolocalización</span><b>${si(d.soportado)}</b></div>
+    <div class="stat"><span>Permiso</span><b>${p === 'granted' ? '<span style="color:var(--ok)">concedido</span>'
+      : p === 'denied' ? '<span style="color:var(--mal)">DENEGADO</span>' : p === 'prompt' ? 'sin preguntar aún' : 'desconocido'}</b></div>`;
+  if (p === 'denied') {
+    const ex = GEO.explicarError({ code: 1 }, d);
+    $('#resGps').innerHTML = `<div class="aviso aviso-mal"><b>${ex.titulo}</b>
+      <ol>${ex.pasos.map(x => `<li>${x}</li>`).join('')}</ol></div>`;
+  }
+})();
+
+/* ⚠️ SIN async: la llamada al GPS tiene que salir del gesto */
+$('#probarGps').onclick = function () {
+  const res = $('#resGps');
+  res.innerHTML = '<div class="aviso"><span class="spin"></span> Buscando satélites…</div>';
+
+  const pet = GEO.pedirUbicacion({
+    onProgreso: (pos, c) => {
+      res.innerHTML = `<div class="aviso"><b style="color:${c.color}">${c.txt}</b>
+        <div class="gps-barra"><i style="width:${c.pct}%;background:${c.color}"></i></div>
+        <div class="gps-txt"><span>afinando…</span><span>±${Math.round(pos.accuracy)} m</span></div></div>`;
+      pintaMapa(pos.lat, pos.lon, pos.accuracy);
+    },
+    onAviso: t => { res.innerHTML = `<div class="aviso"><span class="spin"></span> ${t}</div>`; }
+  });
+
+  pet.promesa.then(pos => {
+    const c = pos.calidad;
+    res.innerHTML = `<div class="aviso ${c.usable ? 'aviso-ok' : 'aviso-mal'}">
+      <b>Precisión ${c.nivel} · ±${Math.round(pos.accuracy)} m</b><br>
+      Conseguido en ${(pos.ms/1000).toFixed(1)} s con ${pos.intentos} lecturas.
+      ${c.usable ? '<br>Con esto BirraMap te sitúa bien.'
+        : '<br>Tu móvil está usando la antena, no el GPS. Revisa los ajustes o coloca el punto a mano al fichar.'}</div>`;
+    pintaMapa(pos.lat, pos.lon, pos.accuracy);
+  }).catch(e => {
+    const ex = e.explicado;
+    res.innerHTML = `<div class="aviso aviso-mal"><b>${ex.titulo}</b><br>${ex.texto}
+      ${ex.pasos && ex.pasos.length ? `<ol>${ex.pasos.map(x => `<li>${x}</li>`).join('')}</ol>` : ''}</div>`;
+  });
+};
+
+function pintaMapa(lat, lon, acc) {
+  const c = $('#mapaPrueba');
+  c.style.height = '220px';
+  if (!mapaPrueba) {
+    setTimeout(() => {
+      mapaPrueba = L.map('mapaPrueba', { zoomControl: false }).setView([lat, lon], 17);
+      UI.capaMapa().addTo(mapaPrueba);
+      dibuja(lat, lon, acc);
+    }, 420);
+  } else { mapaPrueba.invalidateSize(); dibuja(lat, lon, acc); }
+}
+function dibuja(lat, lon, acc) {
+  if (!mapaPrueba) return;
+  if (marcaPrueba) mapaPrueba.removeLayer(marcaPrueba);
+  if (circPrueba) mapaPrueba.removeLayer(circPrueba);
+  marcaPrueba = L.marker([lat, lon]).addTo(mapaPrueba);
+  circPrueba = L.circle([lat, lon], { radius: acc, color: '#ffc93c', fillColor: '#ffc93c', fillOpacity: .12, weight: 2 }).addTo(mapaPrueba);
+  mapaPrueba.setView([lat, lon], acc < 50 ? 18 : acc < 300 ? 16 : 13);
+}
+</script>
+</body>
+</html>

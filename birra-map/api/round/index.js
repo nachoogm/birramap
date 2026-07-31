@@ -1,0 +1,51 @@
+const S = require('../shared/store');
+const L = require('../shared/logic');
+module.exports = S.withMember(async (context, req, p, m) => {
+  if (req.method === 'GET') {
+    const days = Math.min(Math.max(parseInt(req.query.days||'90',10)||90, 1), 365);
+    const r = await S.listRounds(m.groupId, Date.now() - days*86400000);
+    return S.ok(context, r.map(x => ({ id:x.rowKey, payerId:x.payerId, payerNick:x.payerNick,
+      drink:x.drink, place:x.place, ts:x.ts, tsMs:x.tsMs, priceCents:x.priceCents||0,
+      participants: typeof x.participants === 'string' ? JSON.parse(x.participants) : x.participants })));
+  }
+  const b = req.body || {};
+  const lat = Number(b.lat), lon = Number(b.lon);
+  if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180)
+    return S.err(context, 400, 'Coordenadas no válidas');
+  const ids = [...new Set([p.userId, ...(Array.isArray(b.participants) ? b.participants : [])])];
+  if (ids.length < 2) return S.err(context, 400, 'Una ronda de uno es un vicio, no una ronda');
+  if (ids.length > 15) return S.err(context, 400, 'Máximo 15 personas por ronda');
+  const members = await S.membersOf(ids);
+  const valid = ids.filter(id => members[id] && members[id].groupId === m.groupId);
+  if (valid.length < 2) return S.err(context, 400, 'Los participantes deben estar en tu grupo');
+
+  const drink = L.DRINKS.includes(b.drink) ? b.drink : 'cana';
+  const place = String(b.place||'').slice(0,60);
+  const priceCents = L.toCents(b.price);
+  const tsMs = Date.now();
+  const rlat = Math.round(lat*1e5)/1e5, rlon = Math.round(lon*1e5)/1e5;
+
+  const cool = parseInt(process.env.ROUND_COOLDOWN_MS ?? '60000', 10);
+  if (cool > 0) {
+    const rec = await S.listRounds(m.groupId, tsMs - cool);
+    if (rec.some(r => r.payerId === p.userId)) return S.err(context, 429, 'Acabas de invitar, espera un minuto');
+  }
+
+  const participants = valid.map(id => ({ userId:id, nick:members[id].nick }));
+  for (const id of valid) {
+    await S.addCheckin(m.groupId, {
+      userId:id, nick:members[id].nick, drink, qty:1, priceCents,
+      lat:rlat, lon:rlon, place,
+      note: id === p.userId ? 'invito yo' : `ronda de ${m.nick}`,
+      ts:new Date(tsMs).toISOString(), tsMs, day:new Date(tsMs).toISOString().slice(0,10),
+      viaRound:true, payerId:p.userId
+    });
+    if (members[id].hiddenUntil || members[id].homeAt) await S.saveMember(id, { hiddenUntil:0, homeAt:0 });
+  }
+  await S.addRound(m.groupId, { payerId:p.userId, payerNick:m.nick, drink, place, priceCents,
+    lat:rlat, lon:rlon, ts:new Date(tsMs).toISOString(), tsMs,
+    day:new Date(tsMs).toISOString().slice(0,10),
+    participants: JSON.stringify(participants), size: participants.length });
+
+  S.ok(context, { ok:true, participants, size:participants.length, totalCents: priceCents*participants.length }, 201);
+});

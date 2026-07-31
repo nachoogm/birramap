@@ -1,0 +1,19 @@
+{
+  "routes": [
+    { "route": "/api/health", "allowedRoles": ["anonymous"] },
+    { "route": "/api/purge", "allowedRoles": ["anonymous"] },
+    { "route": "/ayuda.html", "allowedRoles": ["anonymous"] },
+    { "route": "/api/*", "allowedRoles": ["authenticated"] },
+    { "route": "/*", "allowedRoles": ["anonymous", "authenticated"] }
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/icons/*", "/js/*", "/css/*", "/ayuda.html", "*.css", "*.js", "*.png", "*.webmanifest"]
+  },
+  "globalHeaders": {
+    "Cache-Control": "no-cache, must-revalidate",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "platform": { "apiRuntime": "node:20" }
+}
