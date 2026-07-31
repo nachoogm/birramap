@@ -1,0 +1,10 @@
+{
+  "name": "birramap",
+  "version": "4.0.0",
+  "private": true,
+  "scripts": {
+    "build": "echo \"Front estatico, sin build\"",
+    "test": "node tests/test.js",
+    "start": "swa start public --api-location api"
+  }
+}
